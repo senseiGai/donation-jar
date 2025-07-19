@@ -18,7 +18,6 @@ export default function AccountCard() {
     const userAddress = await signer.getAddress();
     setAddress(userAddress);
 
-    // Nickname via ENS reverse lookup (optional)
     try {
       const ensName = await provider.lookupAddress(userAddress);
       setNickname(ensName ?? "");
@@ -31,12 +30,8 @@ export default function AccountCard() {
     setTotalDonated(ethers.formatEther(donated));
 
     const userRank = await contract.getRank(userAddress);
-    setRank(Object.keys(RANK_MAP)[userRank]);
+    setRank(userRank);
   };
-
-  useEffect(() => {
-    fetchAccountData();
-  }, []);
 
   const RANK_MAP = {
     0: "None",
@@ -44,7 +39,11 @@ export default function AccountCard() {
     2: "Donator",
     3: "Patron",
     4: "Whale",
-  };
+  } as const;
+
+  useEffect(() => {
+    fetchAccountData();
+  }, []);
 
   return (
     <div className="bg-gray-900 text-white p-6 rounded-xl shadow-md w-full max-w-md">
@@ -69,7 +68,9 @@ export default function AccountCard() {
 
       <div className="mb-3">
         <span className="font-semibold text-gray-400">Rank:</span>{" "}
-        <span className="text-yellow-400">{rank}</span>
+        <span className="text-yellow-400">
+          {RANK_MAP[Number(rank) as keyof typeof RANK_MAP]}
+        </span>
       </div>
     </div>
   );

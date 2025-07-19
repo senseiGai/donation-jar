@@ -22,10 +22,15 @@ export default function Home() {
   const [amount, setAmount] = useState("0.01");
   const [message, setMessage] = useState("");
   const [donations, setDonations] = useState<Donation[]>([]);
+  const [receivedDonations, setReceivedDonations] = useState<Donation[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (walletConnected) fetchDonations();
-  }, [walletConnected]);
+    if (walletConnected && account) {
+      fetchDonations();
+      fetchReceivedDonations();
+    }
+  }, [walletConnected, account]);
 
   const switchToSepolia = async (): Promise<boolean> => {
     if (!window.ethereum) {
@@ -70,133 +75,172 @@ export default function Home() {
   };
 
   const connectWallet = async () => {
-    await switchToSepolia();
+    const switched = await switchToSepolia();
+    if (!switched) return;
+
     const provider = new ethers.BrowserProvider(window.ethereum);
     const accounts = await provider.send("eth_requestAccounts", []);
+
     setAccount(accounts[0]);
     setWalletConnected(true);
   };
 
   const fetchDonations = async () => {
-    if (!window.ethereum) {
-      alert("MetaMask not found");
-      return;
-    }
-
     const provider = new ethers.BrowserProvider(window.ethereum);
-
-    const accounts = await provider.send("eth_requestAccounts", []);
-    if (accounts.length === 0) {
-      alert("No wallet connected");
-      return;
-    }
-
     const signer = await provider.getSigner();
     const contract = new ethers.Contract(CONTRACT_ADDRESS, abiJson, signer);
     const result = await contract.getMyDonates();
-
     setDonations(result);
+  };
+
+  const fetchReceivedDonations = async () => {
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, abiJson, signer);
+    const result = await contract.getReceivedDonations();
+    setReceivedDonations(result);
   };
 
   const sendDonation = async () => {
     if (!recipient || !message || !amount) return;
 
-    await switchToSepolia();
+    const switched = await switchToSepolia();
+    if (!switched) return;
 
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
-    const contract = new ethers.Contract(CONTRACT_ADDRESS, abiJson, signer);
+    setLoading(true);
 
-    const tx = await contract.addDonate(recipient, message, {
-      value: ethers.parseEther(amount),
-    });
-    await tx.wait();
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(CONTRACT_ADDRESS, abiJson, signer);
 
-    alert("Donation sent!");
-    setMessage("");
-    setRecipient("");
-    setAmount("0.01");
-    fetchDonations();
+      const tx = await contract.addDonate(recipient, message, {
+        value: ethers.parseEther(amount),
+      });
+
+      await tx.wait();
+
+      alert("✅ Donation sent!");
+      setMessage("");
+      setRecipient("");
+      setAmount("0.01");
+      await fetchDonations();
+      await fetchReceivedDonations();
+    } catch (err) {
+      console.error("❌ Transaction failed:", err);
+      alert("Transaction failed. Check console.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center p-6">
-      <h1 className="text-4xl font-bold mb-6 text-center">Donation Jar</h1>
-
-      {!walletConnected ? (
-        <button
-          onClick={connectWallet}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded mb-6"
-        >
-          Connect Wallet
-        </button>
+    <main className="min-h-screen bg-gray-950 text-white flex items-center justify-center p-6">
+      {loading ? (
+        <div className="text-lg animate-pulse text-gray-300">
+          ⏳ Sending transaction...
+        </div>
       ) : (
-        <div className="w-full max-w-md space-y-4">
-          <AccountCard />
-          <div>
-            <label className="block mb-1 text-sm">Recipient Address</label>
-            <input
-              type="text"
-              value={recipient}
-              onChange={(e) => setRecipient(e.target.value)}
-              placeholder="0x..."
-              className="w-full p-2 rounded bg-gray-800 border border-gray-700"
-            />
-          </div>
+        <div className="w-full max-w-md space-y-6">
+          <h1 className="text-4xl font-bold text-center">Donation Jar</h1>
 
-          <div>
-            <label className="block mb-1 text-sm">Message</label>
-            <input
-              type="text"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder="Thank you!"
-              className="w-full p-2 rounded bg-gray-800 border border-gray-700"
-            />
-          </div>
+          {!walletConnected ? (
+            <button
+              onClick={connectWallet}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded w-full"
+            >
+              Connect Wallet
+            </button>
+          ) : (
+            <>
+              <AccountCard />
 
-          <div>
-            <label className="block mb-1 text-sm">Amount (ETH)</label>
-            <input
-              type="number"
-              min="0.001"
-              step="0.001"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="w-full p-2 rounded bg-gray-800 border border-gray-700"
-            />
-          </div>
+              <div className="space-y-3">
+                <input
+                  type="text"
+                  placeholder="Recipient Address"
+                  value={recipient}
+                  onChange={(e) => setRecipient(e.target.value)}
+                  className="w-full p-2 bg-gray-800 border border-gray-700 rounded"
+                />
+                <input
+                  type="text"
+                  placeholder="Message"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  className="w-full p-2 bg-gray-800 border border-gray-700 rounded"
+                />
+                <input
+                  type="number"
+                  min="0.001"
+                  step="0.001"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="w-full p-2 bg-gray-800 border border-gray-700 rounded"
+                />
+                <button
+                  onClick={sendDonation}
+                  className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded"
+                >
+                  Send Donation
+                </button>
+              </div>
 
-          <button
-            onClick={sendDonation}
-            className="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
-          >
-            Send Donation
-          </button>
+              <div>
+                <h2 className="text-xl font-semibold mt-6">My Donations</h2>
+                {donations.length === 0 ? (
+                  <p className="text-gray-400">No donations yet.</p>
+                ) : (
+                  <ul className="space-y-2 mt-2">
+                    {donations.map((d, idx) => (
+                      <li
+                        key={idx}
+                        className="p-3 rounded bg-gray-800 border border-gray-700"
+                      >
+                        <p className="text-sm text-gray-400">
+                          To: {d.recipient} — {ethers.formatEther(d.amount)} ETH
+                        </p>
+                        <p>{d.message}</p>
+                        <p className="text-xs text-gray-500">
+                          {new Date(
+                            Number(d.timestamp) * 1000
+                          ).toLocaleString()}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
 
-          <div className="mt-8">
-            <h2 className="text-xl font-semibold mb-2">My Donations</h2>
-            {donations.length === 0 ? (
-              <p className="text-gray-400">No donations yet.</p>
-            ) : (
-              <ul className="space-y-2">
-                {donations.map((d, idx) => (
-                  <li
-                    key={idx}
-                    className="p-3 rounded bg-gray-800 border border-gray-700"
-                  >
-                    <p className="text-sm text-gray-400">
-                      To: {d.recipient} — {ethers.formatEther(d.amount)} ETH
-                    </p>
-                    <p>{d.message}</p>
-                    <p className="text-xs text-gray-500">
-                      {new Date(Number(d.timestamp) * 1000).toLocaleString()}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+              <div>
+                <h2 className="text-xl font-semibold mt-6">
+                  Received Donations
+                </h2>
+                {receivedDonations.length === 0 ? (
+                  <p className="text-gray-400">No donations yet.</p>
+                ) : (
+                  <ul className="space-y-2 mt-2">
+                    {receivedDonations.map((d, idx) => (
+                      <li
+                        key={idx}
+                        className="p-3 rounded bg-gray-800 border border-gray-700"
+                      >
+                        <p className="text-sm text-gray-400">
+                          From: {d.donator} — {ethers.formatEther(d.amount)} ETH
+                        </p>
+                        <p>{d.message}</p>
+                        <p className="text-xs text-gray-500">
+                          {new Date(
+                            Number(d.timestamp) * 1000
+                          ).toLocaleString()}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
     </main>
